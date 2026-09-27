@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../styles/Checkout.css";
 import YocoPayment from "../components/YocoPayment";
@@ -8,7 +8,7 @@ const USER_KEY = "ict_branded_user";
 const DISCOUNT = 0.2;
 const API_URL = import.meta.env.VITE_API_URL;
 const BANKS = ["FNB", "Standard Bank", "ABSA", "Nedbank", "Capitec"];
-const PAYMENT_METHODS = ["YOCO", "SnapScan", "EFT", "QR Scan"];
+const PAYMENT_METHODS = ["YOCO", "SnapScan", "EFT"];
 const RESIDENCE_GROUPS = [
   { label: "Bellville Campus", options: ["Bellville Campus Residences", "Anglo American Residence", "De Beers Residence (East Wing)", "De Goede Hoop Residence", "Freedom Square 1 & 2", "Heroes House", "Kruskal", "MGR 1", "MGR 2", "New 200 Beds Residence", "Post Graduate Residence", "Richard Sacco / Sacco Residence", "Sheriff's House Residence", "Toplin House", "Park Central", "Theresa Court", "Toplin 2", "Bellpark", "Reghkam", "South Point – Orchards", "Student Life – Northville", "Melade House", "Student Junction Residences (Goodman, Libertas, Le Ruth, Middestad, Picton)", "Elile House"] },
   { label: "District Six (Cape Town) Campus", options: ["Cape Suites", "Catsville (Groote Schuur)", "City Edge Residence", "Downtown Lodge (Zonnebloem)", "Elizabeth Women's Residence (Gardens)", "J&B Residence (Zonnebloem)", "New Market Junction", "Plein Street (South Point)", "President House (South Point)", "Sandenburgh Residence (Zonnebloem)", "St Peters Residence – Block A", "Hanover Street Residence", "Vogue House", "Stanhope – South Point", "Harfield", "Rushkin House", "Mountain House"] },
@@ -37,11 +37,6 @@ function Checkout() {
   const [confirmation, setConfirmation] = useState(null);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [orderError, setOrderError] = useState(null);
-  const [showScanner, setShowScanner] = useState(false);
-  const [qrScanned, setQrScanned] = useState(false);
-  const [qrData, setQrData] = useState("");
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
 
   useEffect(() => { try { const raw = localStorage.getItem(CART_KEY); if (raw) setCart(JSON.parse(raw)); } catch (e) { console.error("Failed to load cart", e); } }, []);
   useEffect(() => {
@@ -60,18 +55,6 @@ function Checkout() {
     window.addEventListener("storage", handleStorage); return () => window.removeEventListener("storage", handleStorage);
   }, [confirmation]);
 
-  // REAL CAMERA LOGIC
-  useEffect(() => {
-    if (showScanner) {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-       .then(stream => { streamRef.current = stream; if (videoRef.current) videoRef.current.srcObject = stream; })
-       .catch(() => { setOrderError("Camera permission denied. Please allow camera."); setShowScanner(false); });
-    } else {
-      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-    }
-    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); };
-  }, [showScanner]);
-
   const saveCart = (newCart) => { setCart(newCart); localStorage.setItem(CART_KEY, JSON.stringify(newCart)); };
   const items = Object.keys(cart).filter(k => cart[k] > 0 && catalog[k.split("::")[0]]).map(k => {
     const [id, size] = k.split("::"); const p = catalog[id]; const qty = cart[k];
@@ -89,7 +72,6 @@ function Checkout() {
   const placeOrder = async () => {
     if (placingOrder) return;
     if (!deliveryValid) { setOrderError(deliveryHint); return; }
-    if ((payment === "QR Scan" || payment === "SnapScan") &&!qrScanned) { setOrderError("Please scan QR code first!"); return; }
     setPlacingOrder(true); setOrderError(null);
     try {
       const results = await Promise.all(items.map(item => fetch(`${API_URL}/api/invoice`, {
@@ -102,7 +84,7 @@ function Checkout() {
     } catch (err) { setOrderError("Failed to place order. Try again."); } finally { setPlacingOrder(false); }
   };
 
-  const payLabel = payment === "EFT"? `Pay ${money(total)} via EFT – ${selectedBank}` : payment === "QR Scan"? `Pay ${money(total)} via QR Scan` : `Pay ${money(total)} with ${payment}`;
+  const payLabel = payment === "EFT"? `Pay ${money(total)} via EFT – ${selectedBank}` : `Pay ${money(total)} with ${payment}`;
 
   return (
     <div className="checkout-container">
@@ -131,25 +113,8 @@ function Checkout() {
             </div></div>
 
             <div className="card"><div className="card-head">Payment Method</div><div className="card-body">
-              <div className="pay-row">{PAYMENT_METHODS.map(m => (<button key={m} className={`pay-opt ${payment === m? "active" : ""}`} onClick={() => { setPayment(m); setQrScanned(false); setShowScanner(false); }}>{m}</button>))}</div>
+              <div className="pay-row">{PAYMENT_METHODS.map(m => (<button key={m} className={`pay-opt ${payment === m? "active" : ""}`} onClick={() => setPayment(m)}>{m}</button>))}</div>
               {payment === "EFT" && (<div style={{ marginTop: "12px" }}><label style={fieldLabelStyle}>Select Bank</label><select value={selectedBank} onChange={e => setSelectedBank(e.target.value)} style={{ width: "100%", padding: "10px", marginTop: "6px", borderRadius: "8px" }}>{BANKS.map(b => (<option key={b} value={b}>{b}</option>))}</select></div>)}
-
-              {(payment === "QR Scan" || payment === "SnapScan") && (
-                <div style={{ marginTop: "16px", padding: "16px", border: "2px dashed #22c55e", borderRadius: "12px", background: "#f0fdf4", textAlign: "center" }}>
-                  <h4 style={{ margin: "0 0 10px" }}>📱 Scan QR to Pay {money(total)}</h4>
-                  {!showScanner &&!qrScanned && (<button onClick={() => setShowScanner(true)} style={{ padding: "12px 24px", background: "black", color: "white", borderRadius: "8px", border: "none", cursor: "pointer" }}>📷 Open QR Scanner</button>)}
-                  {showScanner && (
-                    <div>
-                      <video ref={videoRef} autoPlay playsInline style={{ width: "100%", maxWidth: "320px", height: "320px", background: "#000", borderRadius: "12px", objectFit: "cover" }} />
-                      <div style={{ marginTop: "12px", display: "flex", gap: "10px", justifyContent: "center" }}>
-                        <button onClick={() => { setQrData(`PAY-${Date.now()}-${total}`); setQrScanned(true); setShowScanner(false); }} style={{ padding: "10px 20px", background: "#22c55e", color: "white", borderRadius: "8px", border: "none" }}>✅ Confirm Scan</button>
-                        <button onClick={() => setShowScanner(false)} style={{ padding: "10px 20px", background: "#e2e8f0", borderRadius: "8px", border: "none" }}>Close</button>
-                      </div>
-                    </div>
-                  )}
-                  {qrScanned && (<div style={{ background: "white", padding: "12px", borderRadius: "8px", marginTop: "10px", border: "1px solid #22c55e" }}><div style={{ color: "#16a34a", fontWeight: "700" }}>✅ QR Scanned!</div><div style={{ fontSize: "12px", fontFamily: "monospace", background: "#f1f5f9", padding: "6px", borderRadius: "4px", marginTop: "6px" }}>{qrData}</div><button onClick={() => { setQrScanned(false); setQrData(""); }} style={{ marginTop: "8px", fontSize: "12px", background: "none", border: "none", textDecoration: "underline" }}>Scan Again</button></div>)}
-                </div>
-              )}
             </div></div>
 
             <div className="card"><div className="card-head">Price Breakdown</div><div className="card-body">
@@ -164,7 +129,7 @@ function Checkout() {
 
             <div style={{ marginTop: "20px" }}>
               {payment === "YOCO"? (<YocoPayment amount={total} studentNumber={getStudentNumber()} deliverySummary={getDeliverySummary()} disabled={placingOrder ||!deliveryValid} buttonClassName="order-btn" onSuccess={placeOrder} />) : (
-                <button className="order-btn" onClick={placeOrder} disabled={placingOrder ||!deliveryValid || ((payment === "QR Scan" || payment === "SnapScan") &&!qrScanned)} style={{ width: "100%", opacity: ((payment === "QR Scan" || payment === "SnapScan") &&!qrScanned)? 0.6 : 1 }}>{placingOrder? "Placing..." : payLabel}</button>
+                <button className="order-btn" onClick={placeOrder} disabled={placingOrder ||!deliveryValid} style={{ width: "100%" }}>{placingOrder? "Placing..." : payLabel}</button>
               )}
             </div>
           </>
